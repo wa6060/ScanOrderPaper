@@ -1,0 +1,117 @@
+# _*_encoding:utf-8-*_
+
+# sudo apt-get install tesseract-ocr       instal the Tesseract-ocr in System, Function: Picture conver to text(just jpg and png)
+# pip3 install PyMuPDF==1.18.19 --user     Function: PDF conver to Picture(just support jpg and png file)
+# pip3 install pillow                      Function: open the picture
+# pip3 install pytesseract                 Function: tesseract-ocr in python inverment (sudo pip3 install pytesseract)
+
+
+import fitz
+import datetime
+import os
+import pytesseract
+from PIL import Image
+import time
+import shutil
+
+MainPath = "/run/user/1000/gvfs/smb-share:server=192.168.1.115,share=scan/"
+MainPathBackup = "/run/user/1000/gvfs/smb-share:server=192.168.1.115,share=scan/"
+
+PDFPath = MainPath + "PDF-Scan/"
+PICPath = MainPathBackup + "PIC/"
+TXTPath = MainPathBackup + "TXT/"
+TXTBackup = MainPathBackup + "TXTBackup/"
+OrderInfoSavePath = MainPath + "PDF-Stored/"
+ScanErrorOrder = MainPath + "ScanError/"
+
+PDFNameList = os.listdir(PDFPath)                                                 # get all of the PDF name
+
+StartTime1 = datetime.datetime.now()                                          
+# ----------Bulid a new folder named as Date and Week(2020-01-16_03)-------------------
+Week = int(time.strftime("%U")) + 1
+# print(Week)
+if len(str(Week)) == 1:
+    Week = "0" + str(Week)
+if time.strftime("%A") == "Monday":
+    with open(TXTPath + "SaveFolderName.txt", 'w', encoding='utf-8') as g:
+        g.write(str(time.strftime("%Y-%m-%d")) + "_" + str(Week))
+        # print(str(Week))
+
+FolderName = open(TXTPath + "SaveFolderName.txt", 'r').readline()
+folder_is_exists = os.path.exists(OrderInfoSavePath + "/" + FolderName)
+if not folder_is_exists:
+    os.makedirs(OrderInfoSavePath + FolderName)
+# -------------------------------------------------------------------------------------
+for PDFName in PDFNameList:
+    StartTime = datetime.datetime.now()
+
+    try:
+
+        pdfDoc = fitz.open(PDFPath + PDFName)
+        # print(PDFPath + PDFName)
+        Page = pdfDoc[0]                                                          # just need the first page
+        rotate = int(0)                                                           # 旋转角度，0表示正常
+        zoom_x = 1
+        zoom_y = 1
+        mat = fitz.Matrix(zoom_x, zoom_y).prerotate(rotate)
+        rect = Page.rect
+        mp = rect.tl + (rect.br - rect.tl) * 0.75
+        # mp = (rect.tl + rect.br) / 2                                            # it's middle point
+        clip = fitz.Rect(mp, rect.tl)                                             # want to cut area
+        pix = Page.getPixmap(matrix=mat, alpha=True, clip=clip)                   # Deprecation: 'getPixmap' removed from class 'Page' after v1.19.0 - use 'get_pixmap'
+        # pix = Page.get_pixmap(matrix=mat, alpha=True, clip=clip)
+        pix.writePNG(PICPath + "output.png")                                      # 转换好的的PNG图片保存到指定文件夹
+        # pix.save(PICPath + "output.png")
+        del pdfDoc
+        # -----装PNG转换成TXT文档--------------------------------------------
+        image = Image.open(PICPath + "output.png")
+        text = pytesseract.image_to_string(image, config="--psm 11")
+        with open(TXTPath + "output.txt", 'w', encoding='utf-8') as f:
+            f.write(str(text))
+        # print(text)
+        # ------------------------------------------------------------------
+
+        # -----get the OrderNumber----------------------------------------------------
+        OrderNumber = ""
+        OrderNumberList = text.split()
+        C = 0
+        D = 0
+        try:
+            while C < 1:
+                OrderNumber = str(OrderNumberList[D])
+                if len(OrderNumber) == 8 and OrderNumber[0:2] == str("00"):
+                    C += 1
+                else:
+                    D += 1
+        except (IndexError, ValueError, FileNotFoundError, TypeError, OSError) as e:
+            shutil.move(PDFPath + PDFName, ScanErrorOrder + PDFName)
+            continue
+    except (IndexError, ValueError, FileNotFoundError, TypeError, OSError) as b:
+        # print(b)
+        shutil.move(PDFPath + PDFName, ScanErrorOrder + PDFName)
+        continue
+    # -------------------------------------------------------------------
+
+    # -----创建文件夹，重命名及CUT到指定文件夹下---------------------------------------
+    if not os.path.exists(OrderInfoSavePath + FolderName):                        # 判断文件夹是否存在
+        os.makedirs(OrderInfoSavePath + FolderName)                               # 如果不存在则创建此文件夹
+    if not os.path.exists(TXTBackup + FolderName):
+        os.makedirs(TXTBackup + FolderName)
+
+    try:
+        os.rename(PDFPath + PDFName, OrderInfoSavePath + FolderName + "/" + OrderNumber + ".pdf")
+        os.rename(TXTPath + "output.txt", TXTBackup + FolderName + OrderNumber + ".txt")          # 以定单号重名名output.txt,并存档方便以后校验
+    except(OSError, FileNotFoundError) as ee:
+        shutil.move(PDFPath + PDFName, ScanErrorOrder + PDFName)
+        continue
+    # -------------------------------------------------------------------
+
+    EndTime = datetime.datetime.now()
+    OneFileSpendTime = EndTime - StartTime
+    print(OrderNumber, OneFileSpendTime)
+
+EndTime1 = datetime.datetime.now() 
+TotalFileSpendTime = EndTime1 - StartTime1
+print("Total PDFs Spend:", TotalFileSpendTime)  
+
+
